@@ -5,7 +5,6 @@ import gym
 import tensorflow as tf
 from gym import Env
 import numpy as np
-from keras.layers import Dropout
 from tensorflow.keras.models import clone_model
 from tqdm import tqdm
 from tensorflow.keras.models import Model
@@ -13,14 +12,10 @@ from tensorflow.keras.layers import Input, Dense, BatchNormalization
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import backend as K
-import tracemalloc
-import gc
 
 current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 train_log_dir = 'logs/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-
-tracemalloc.start()
 
 
 class dqn:
@@ -33,6 +28,10 @@ class dqn:
         self.experience_lst = np.array([], dtype=object)
         self.experience_cap = experience_cap
         self.bath_size = batch_size
+        # self.ann = get_ann(input_dim=self.observation_space_size, output_dim=self.action_space_size)
+        # self.ann.trainable = True
+        # self.target_network = get_ann(input_dim=self.observation_space_size, output_dim=self.action_space_size)
+        # self.target_network.trainable = False
         self.ann = None
         self.target_ann_network = None
         self.gamma = 0.97  # discount
@@ -40,7 +39,7 @@ class dqn:
         self.lr_decay_factor = 0.98
         self.learning_rate = lr
         self.min_lr = 1e-10
-        self.decaying_rate =  0.9995
+        self.decaying_rate = 0.9995
 
     def train(self, episodes, n_steps):
         self.ann = self._build_model()
@@ -58,11 +57,6 @@ class dqn:
             state = self.env.reset()[0]
             rewards = []
             is_done = False
-            if np.mean(train_rewards[-3:]) >= 475:
-                for k, v in self.training_model._get_trainable_state().items():
-                    k.trainable = False
-                    with open('he.txt', 'w') as f:
-                        f.write("he")
             for step in range(n_steps):
                 n_steps_count += 1
                 state, action, reward, new_state, is_done, info = self.perform_action(state)
@@ -85,7 +79,7 @@ class dqn:
                         tf.summary.scalar('AVG_REWARD@100', np.mean(train_rewards[-100:]), step=episode)
                         tf.summary.scalar('Learning rate', self.learning_rate, step=episode)
                     break
-            # self.epsilon = max(self.epsilon * self.decaying_rate, 0.02)
+            # self.epsilon = max(self.epsilon * self.decaying_rate, 0.002)
             self.epsilon = 0.02 + (1 -  0.02) * math.exp(-0.001 * n_steps_count)
             if self.learning_rate > self.min_lr:
                 self.learning_rate = self.lr_decay_factor * self.learning_rate
@@ -93,12 +87,10 @@ class dqn:
             if (episode + 1) % self.C == 0:
                 print('updated target weights')
                 self.target_ann_network.set_weights(self.ann.get_weights())
-                gc.collect()
-                K.clear_session()
 
     def insert_memory(self, memory_item):
         if len(self.experience_lst) == self.experience_cap:
-            self.experience_lst = self.experience_lst[1:]
+            self.experience_lst = np.delete(self.experience_lst, obj=0, axis=1)
         if len(self.experience_lst) == 0:
             self.experience_lst = np.array(memory_item)
         else:
@@ -137,12 +129,14 @@ class dqn:
         actions = np.concatenate([np.indices(actions.shape).T, np.expand_dims(actions, axis=0).T], axis=1)
         return [X, actions], ys
 
+
     def _build_model(self):
         i = Input(shape=self.observation_space_size)
-        layers = [16, 32, 64, 32, 16]
+        layers = [32, 32, 32]
         d = i
         for layer in layers:
-            d = Dense(layer, activation='relu', kernel_initializer='he_uniform')(d)
+            d = Dense(layer, activation='relu')(d)
+            d = BatchNormalization()(d)
         o = Dense(self.action_space_size, activation='linear')(d)
         return Model(inputs=i, outputs=o)
 
@@ -152,6 +146,9 @@ class dqn:
         o = self.ann(i)
         o = tf.gather_nd(o, a)
         return Model(inputs=[i, a], outputs=[o])
+
+
+
 
 
 
